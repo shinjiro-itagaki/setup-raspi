@@ -22,26 +22,29 @@ if [ ! -f "${RSA_PUB}" ]; then
     exit 1
 fi
 
-mkdir -p ~/.ssh
+mkdir -p ${HOME}/.ssh
 
-CP_PUB=true
-if [ ! -f ~/.ssh/authorized_keys ]; then
+readonly AUTH_KEY=${HOME}/.ssh/authorized_keys
+
+CP_KEY=true
+if [ -f ${AUTH_KEY} ]; then
     PUB=$(cat ${RSA_PUB})
-    X=`cat ~/.ssh/authorized_keys | grep "$PUB"`
-    if [ ! "${X}" == "" ]; then
-        CP_PUB=false
+    X=$(cat ${AUTH_KEY} | grep "$PUB")
+    if [ -n "${X}" ]; then
+        CP_KEY=false
     fi
 fi
 
-if "${CP_PUB}" ; then
-    cat ${RSA_PUB} >> ~/.ssh/authorized_keys
+if $CP_KEY; then
+    cat ${RSA_PUB} >> ${AUTH_KEY}
 fi
 
 KEY="8B01E6C2-8702-4067-9BF0-A3020DF37223"
 
 SSHD_CONF="/etc/ssh/sshd_config"
-X=`cat ${SSHD_CONF} | grep "${KEY}"`
-if [ !  "${X}"=="" ]; then
+X=$(cat ${SSHD_CONF} | grep "${KEY}")
+if [ -z "${X}" ]; then
+    echo "add text to sshd_config"
     cat << EOS | sudo tee -a /etc/ssh/sshd_config
 # start ${KEY}
 # port番号設定
@@ -74,6 +77,7 @@ echo "${NAME}" | sudo tee /etc/hostname
 echo "127.0.0.1      ${NAME}" | sudo tee -a /etc/hosts
 
 # raspi-config
+# https://qiita.com/mt08/items/d27085ac469a34526f72
 
 
 # dhcpcd.confに追記
