@@ -15,35 +15,48 @@ if [ ! -f /etc/ssh/sshd_config.org ]; then
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.org
 fi
 
-readonly RSA_PUB=/home/pi/id_rsa.pub
+readonly RSA_PUB=${HOME}/id_rsa.pub
 
 if [ ! -f "${RSA_PUB}" ]; then
     echo "${RSA_PUB} is not found"
     exit 1
 fi
 
-mkdir -p ${HOME}/.ssh
+add_pub_key() {
+    local TGT=$1
+    local DIR=/home/${TGT}
+    local AUTH_KEY=${DIR}/.ssh/authorized_keys    
 
-readonly AUTH_KEY=${HOME}/.ssh/authorized_keys
-
-CP_KEY=true
-if [ -f ${AUTH_KEY} ]; then
-    PUB=$(cat ${RSA_PUB})
-    X=$(cat ${AUTH_KEY} | grep "$PUB")
-    if [ -n "${X}" ]; then
-        CP_KEY=false
+    local CP_KEY=true
+    
+    if [ -z ${TGT} ]; then
+        return 1;
     fi
-fi
+    
+    if [ ! -d ${DIR} ]; then
+        return 1;
+    fi
+    
+    sudo -u ${TGT} mkdir -p ${DIR}/.ssh
 
-if $CP_KEY; then
-    cat ${RSA_PUB} >> ${AUTH_KEY}
-fi
+    if [ -f ${AUTH_KEY} ]; then
+        PUB=$(cat ${RSA_PUB})
+        if [ -n $(cat ${AUTH_KEY} | grep "${PUB}") ]; then
+            CP_KEY=false
+        fi
+    fi
+
+    if $CP_KEY; then
+        cat ${RSA_PUB} | sudo -u ${TGT} tee -a ${AUTH_KEY}
+    fi
+}
+
+add_pub_key $(whoami)
 
 KEY="8B01E6C2-8702-4067-9BF0-A3020DF37223"
 
 SSHD_CONF="/etc/ssh/sshd_config"
-X=$(cat ${SSHD_CONF} | grep "${KEY}")
-if [ -z "${X}" ]; then
+if [ -z $(cat ${SSHD_CONF} | grep "${KEY}") ]; then
     echo "add text to sshd_config"
     cat << EOS | sudo tee -a /etc/ssh/sshd_config
 # start ${KEY}
@@ -74,7 +87,15 @@ readonly NAME="raspberrypi-${NUM}"
 
 # hostnameの書き換え
 echo "${NAME}" | sudo tee /etc/hostname
-echo "127.0.0.1      ${NAME}" | sudo tee -a /etc/hosts
+readonly HOST="127.0.0.1      ${NAME}"
+readonly HOSTS=/etc/hosts
+
+# cat ${HOSTS} | grep "${HOST}"
+cat ${HOSTS}
+
+if [ -z $(cat ${HOSTS} | grep "${HOST}") ]; then
+    echo "${HOST}" | sudo tee -a ${HOSTS}
+fi
 
 # raspi-config
 # https://qiita.com/mt08/items/d27085ac469a34526f72
@@ -114,3 +135,20 @@ fi
 
 # 無線LANへの接続設定
 wpa_passphrase "${SSID}" "${SSPW}" | sudo tee ${WPA_CONF}
+
+# dhcpcdの再起動
+sudo systemctl restart dhcpcd
+sudo systemctl daemon-reload
+
+for USER in $SUDO_USERS;
+do
+    # ユーザー追加
+    if getent passwd $USER; then
+        echo "${USER} is exists"
+    else
+        # -m をつけないとホームディレクトリ を作成してくれない
+        sudo useradd -s /bin/bash -m $USER
+    fi
+    sudo gpasswd -a $USER sudo
+    add_pub_key $USER
+done
